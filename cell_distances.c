@@ -4,6 +4,48 @@
 #include <omp.h>
 
 
+
+void calcWithinBlockCellDistances(float** matrix, int rows, int distanceVector[3465]) {
+#pragma omp parallel
+    {
+#pragma omp for reduction(+:distanceVector[:3465]) // runs out for loop in parallel but not inner
+        for (int fromCell = 0; fromCell < rows - 1; fromCell++) {
+            for (int toCell = fromCell + 1; toCell < rows; toCell++) {
+                float diff[3];
+                diff[0] = matrix[fromCell][0] - matrix[toCell][0];
+                diff[1] = matrix[fromCell][1] - matrix[toCell][1];
+                diff[2] = matrix[fromCell][2] - matrix[toCell][2];
+                distanceVector[(short) (sqrtf( (diff[0]*diff[0] + diff[1]*diff[1] + diff[2]*diff[2])) * 100 + 0.5)] += 1;
+            }
+        }
+    }
+}
+
+void calcBetweenBlockCellDistances(float** matrixA, float** matrixB, int rowsA, int rowsB, int distanceVector[3465]) {
+    #pragma omp parallel
+    {
+    #pragma omp for reduction(+:distanceVector[:3465]) // runs out for loop in parallel but not inner
+        for (int fromCell = 0; fromCell < rowsA; fromCell++) {
+            for (int toCell = 0; toCell < rowsB; toCell++) {
+                float diff[3];
+                diff[0] = matrixA[fromCell][0] - matrixB[toCell][0];
+                diff[1] = matrixA[fromCell][1] - matrixB[toCell][1];
+                diff[2] = matrixA[fromCell][2] - matrixB[toCell][2];
+                distanceVector[(short) (sqrtf( (diff[0]*diff[0] + diff[1]*diff[1] + diff[2]*diff[2])) * 100 + 0.5)] += 1;
+            }
+        }
+    }
+}
+
+int min(int a, int b)
+{
+    if(a>b)
+        return b;
+    else
+        return a;
+}
+
+
 int main(int argc, char *argv[]) {
     if (argc != 2) {
         printf("Usage: %s -t<integer>\n", argv[0]);
@@ -12,79 +54,92 @@ int main(int argc, char *argv[]) {
     int threads = atoi(argv[1] + 2);
     omp_set_num_threads(threads);
 
-    /* PART 1 READING THE FILE AND SAVING THE DATA */
+
+    // initializing distance vector
+    int distanceVector[3466];
+    #pragma omp for
+    for (int i = 0; i <= 3465; i++) {
+        distanceVector[i] = 0;
+    }
+
+
+    //reading file and calculating size and rows of file
     FILE *file = fopen("cells", "r");
     if (file == NULL) {
         perror("Error opening file to read");
         return 1;
     }
-
     fseek(file, 0, SEEK_END); // moves filepointer to end to calculate number of rows in file
-    //printf("pointer position %ld\n", ftell(file));
     int bytesToRead = ftell(file);
-    int rows = bytesToRead / 24;
+    int rowsInFile = bytesToRead / 24;
     fseek(file, 0, SEEK_SET); // resets file pointer
-    //printf("nr rows %ld\n", rows);
 
-    float **matrix = (float **)malloc(rows * sizeof(float *));
+
+    /* SETS SIZE OF BLOCKS AND LINES IN BLOCK, (maybe worth optimizing for number of threads?)  */
+    int maxLines = 100000; // (4000000 / 24) roughly what we get if we divide 4mb with size of 3 floats times 2 blocks
+    maxLines = maxLines / omp_get_num_threads(); // divide by number of threads so  each thread can work on a separate block
+    int rowsInBlock = min(rowsInFile, maxLines); // no need for more lines in block than there is lines in the file
+    int nrBlocks = rowsInBlock / rowsInFile; // what if last block has less rows? TODO, fix it
+
+
+
+    // MAIN LOOP
 #pragma omp for
-    for (int i = 0; i < rows; i++) {
-        matrix[i] = (float *)malloc(3 * sizeof(float));
-    }
+    for (int block_A = 0; block_A < nrBlocks; block_A++) {
+        fseek(file, 24*block_A*rowsInBlock, SEEK_SET);
 
-    float x, y ,z;
-#pragma omp for
-    for (int row = 0; row < rows; row++) {
-        fscanf(file, "%f %f %f", &x, &y, &z);
-        matrix[row][0] = x;
-        matrix[row][1] = y;
-        matrix[row][2] = z;
-    }
-    fclose(file);
 
-    /*
-    printf("Matrix elements:\n");
-    for (int i = 0; i < rows; i++) {
-        for (int j = 0; j < 3; j++) {
-            printf("%.3f ", matrix[i][j]);
+        float **matrix_A = (float **)malloc(rowsInBlock * sizeof(float *));
+        //#pragma omp for
+        for (int i = 0; i < rowsInBlock; i++) {
+            matrix_A[i] = (float *)malloc(3 * sizeof(float));
         }
-        printf("\n"); // Move to the next row
-    }*/
 
-    //PART 2 COMPUTING THE DISTANCE
-    int distanceVector[3466];
-#pragma omp for
-    for (int i = 0; i <= 3465; i++) { // initializes vector to 0
-        distanceVector[i] = 0;
-    }
-
-    #pragma omp parallel
-    {
-    #pragma omp for reduction(+:distanceVector[:3465]) // runs out for loop in parallel but not inner
-    for (int fromCell = 0; fromCell < rows - 1; fromCell++) {
-        //printf("fromRow: %d\n", fromCell);
-        for (int toCell = fromCell + 1; toCell < rows; toCell++) {
-            //printf("toCell: %d\n", toCell);
-            float diff[3];
-            //int sumOfSquares;
-            diff[0] = matrix[fromCell][0] - matrix[toCell][0];
-            diff[1] = matrix[fromCell][1] - matrix[toCell][1];
-            diff[2] = matrix[fromCell][2] - matrix[toCell][2];
-            /*int sumOfSquares = (diff[0]*diff[0] + diff[1]*diff[1] + diff[2]*diff[2]);
-
-            if (((short) (sqrtf( sumOfSquares) /10 + 0.5)) == 0) {
-                printf("fromcell: %d, tocell: %d\n", fromCell, toCell);
-                printf("sumofsquares %d\n", sumOfSquares);
-                printf("sqrt_sumofsquares %d\n", (short) (sqrtf( sumOfSquares) / 10));
-                printf("fromCell coordinates: %d, %d, %d\n", matrix[fromCell][0], matrix[fromCell][1], matrix[fromCell][2]);
-                printf("toCell coordinates: %d, %d, %d\n", matrix[toCell][0], matrix[toCell][1], matrix[toCell][2]);
-                printf("diff[0] %d, diff[1] %d, diff[2] %d,\n", diff[0], diff[1], diff[2]);
-            }*/
-            //printf("index in distVector: %d\n", (int) roundf(sqrtf((float) sumOfSquares) / 10.0));
-            //distanceVector[(short) (sqrtf((float) sumOfSquares) / 10.0)] += 1;
-            distanceVector[(short) (sqrtf( (diff[0]*diff[0] + diff[1]*diff[1] + diff[2]*diff[2])) * 100 + 0.5)] += 1;
+        // reads file and fills block A with values
+        float Ax, Ay ,Az;
+        //#pragma omp for
+        for (int rowA = 0; rowA < rowsInBlock; rowA++) {
+            fscanf(file, "%f %f %f", &Ax, &Ay, &Az);
+            matrix_A[rowA][0] = Ax;
+            matrix_A[rowA][1] = Ay;
+            matrix_A[rowA][2] = Az;
         }
-    }
+        calcWithinBlockCellDistances(matrix_A, rowsInBlock, distanceVector);
+
+
+        // Keep block A and iterate through all other blocks calculating between blocks cell distances
+        for (int block_B = block_A + 1; block_B < nrBlocks; block_B++) {
+            float **matrix_B = (float **)malloc(rowsInBlock * sizeof(float *));
+            //#pragma omp for
+            for (int i = 0; i < rowsInBlock; i++) {
+                matrix_B[i] = (float *)malloc(3 * sizeof(float));
+            }
+
+            // reads file and fills block B with values
+            float Bx, By ,Bz;
+            //#pragma omp for
+            for (int rowB = 0; rowB < rowsInBlock; rowB++) {
+                fscanf(file, "%f %f %f", &Bx, &By, &Bz);
+                matrix_B[rowB][0] = Bx;
+                matrix_B[rowB][1] = By;
+                matrix_B[rowB][2] = Bz;
+            }
+            calcBetweenBlockCellDistances(matrix_A, matrix_B, rowsInBlock, rowsInBlock, distanceVector);
+
+
+            // free memory
+            for (int i = 0; i < rowsInBlock; i++) {
+                free(matrix_B[i]);
+            }
+            free(matrix_B);
+        }
+
+
+        // free memory
+        for (int i = 0; i < rowsInBlock; i++) {
+            free(matrix_A[i]);
+        }
+        free(matrix_A);
     }
 
 
@@ -99,12 +154,6 @@ int main(int argc, char *argv[]) {
             printf("%.2f %d\n", i / 100.0, distanceVector[i]);
         }
     }
-
-    // free memory
-    for (int i = 0; i < rows; i++) {
-        free(matrix[i]);
-    }
-    free(matrix);
 
     return 0;
 }
