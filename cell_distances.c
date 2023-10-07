@@ -79,56 +79,65 @@ int main(int argc, char *argv[]) {
     int maxLines = 100000; // (4000000 / 24) roughly what we get if we divide 4mb with size of 3 floats times 2 blocks
     maxLines = maxLines / omp_get_num_threads(); // divide by number of threads so  each thread can work on a separate block
     int rowsInBlock = min(rowsInFile, maxLines); // no need for more lines in block than there is lines in the file
-    int nrBlocks = rowsInBlock / rowsInFile; // what if last block has less rows? TODO, fix it
+    int rowsInBlockA = rowsInBlock;
+    int rowsInBlockB = rowsInBlock;
+    int nrBlocks = ceil((float) (rowsInFile) / (float) rowsInBlock);
+    int rowsInLastBlock = rowsInFile - rowsInBlock * (nrBlocks - 1);
+
 
 
 
     // MAIN LOOP
-//#pragma omp for
+#pragma omp for
     for (int block_A = 0; block_A < nrBlocks; block_A++) {
-        fseek(file, 24*block_A*rowsInBlock, SEEK_SET);
+        fseek(file, 24*block_A*rowsInBlockA, SEEK_SET);
+        if (block_A == (nrBlocks-1)) {// if we are on the last block reduce nr rows
+            rowsInBlockA = rowsInLastBlock;
+        }
 
-
-        float **matrix_A = (float **)malloc(rowsInBlock * sizeof(float *));
-        #pragma omp for
-        for (int i = 0; i < rowsInBlock; i++) {
+        float **matrix_A = (float **)malloc(rowsInBlockA * sizeof(float *));
+        //#pragma omp for
+        for (int i = 0; i < rowsInBlockA; i++) {
             matrix_A[i] = (float *)malloc(3 * sizeof(float));
         }
 
         // reads file and fills block A with values
         float Ax, Ay ,Az;
-        #pragma omp for
-        for (int rowA = 0; rowA < rowsInBlock; rowA++) {
+        //#pragma omp for
+        for (int rowA = 0; rowA < rowsInBlockA; rowA++) {
             fscanf(file, "%f %f %f", &Ax, &Ay, &Az);
             matrix_A[rowA][0] = Ax;
             matrix_A[rowA][1] = Ay;
             matrix_A[rowA][2] = Az;
         }
-        calcWithinBlockCellDistances(matrix_A, rowsInBlock, distanceVector);
+        calcWithinBlockCellDistances(matrix_A, rowsInBlockA, distanceVector);
 
 
         // Keep block A and iterate through all other blocks calculating between blocks cell distances
         for (int block_B = block_A + 1; block_B < nrBlocks; block_B++) {
-            float **matrix_B = (float **)malloc(rowsInBlock * sizeof(float *));
-            #pragma omp for
-            for (int i = 0; i < rowsInBlock; i++) {
+            if (block_B == (nrBlocks-1)) {// if we are on the last block reduce nr rows
+                rowsInBlockB = rowsInLastBlock;
+            }
+            float **matrix_B = (float **)malloc(rowsInBlockB * sizeof(float *));
+            //#pragma omp for
+            for (int i = 0; i < rowsInBlockB; i++) {
                 matrix_B[i] = (float *)malloc(3 * sizeof(float));
             }
 
             // reads file and fills block B with values
             float Bx, By ,Bz;
-            #pragma omp for
-            for (int rowB = 0; rowB < rowsInBlock; rowB++) {
+            //#pragma omp for
+            for (int rowB = 0; rowB < rowsInBlockB; rowB++) {
                 fscanf(file, "%f %f %f", &Bx, &By, &Bz);
                 matrix_B[rowB][0] = Bx;
                 matrix_B[rowB][1] = By;
                 matrix_B[rowB][2] = Bz;
             }
-            calcBetweenBlockCellDistances(matrix_A, matrix_B, rowsInBlock, rowsInBlock, distanceVector);
+            calcBetweenBlockCellDistances(matrix_A, matrix_B, rowsInBlockA, rowsInBlockB, distanceVector);
 
 
             // free memory
-            for (int i = 0; i < rowsInBlock; i++) {
+            for (int i = 0; i < rowsInBlockB; i++) {
                 free(matrix_B[i]);
             }
             free(matrix_B);
@@ -136,7 +145,7 @@ int main(int argc, char *argv[]) {
 
 
         // free memory
-        for (int i = 0; i < rowsInBlock; i++) {
+        for (int i = 0; i < rowsInBlockA; i++) {
             free(matrix_A[i]);
         }
         free(matrix_A);
@@ -149,6 +158,7 @@ int main(int argc, char *argv[]) {
             printf("0%.2f %d\n", i / 100.0, distanceVector[i]);
         }
     }
+
     for (int i = 1000; i <= 3465; i++) {
         if (distanceVector[i] != 0) {
             printf("%.2f %d\n", i / 100.0, distanceVector[i]);
