@@ -84,20 +84,20 @@ int main(int argc, char *argv[]) {
 
 
     // MAIN LOOP
-#pragma omp for
+//#pragma omp for
     for (int block_A = 0; block_A < nrBlocks; block_A++) {
         fseek(file, 24*block_A*rowsInBlock, SEEK_SET);
 
 
         float **matrix_A = (float **)malloc(rowsInBlock * sizeof(float *));
-        //#pragma omp for
+        #pragma omp for
         for (int i = 0; i < rowsInBlock; i++) {
             matrix_A[i] = (float *)malloc(3 * sizeof(float));
         }
 
         // reads file and fills block A with values
         float Ax, Ay ,Az;
-        //#pragma omp for
+        #pragma omp for
         for (int rowA = 0; rowA < rowsInBlock; rowA++) {
             fscanf(file, "%f %f %f", &Ax, &Ay, &Az);
             matrix_A[rowA][0] = Ax;
@@ -110,14 +110,14 @@ int main(int argc, char *argv[]) {
         // Keep block A and iterate through all other blocks calculating between blocks cell distances
         for (int block_B = block_A + 1; block_B < nrBlocks; block_B++) {
             float **matrix_B = (float **)malloc(rowsInBlock * sizeof(float *));
-            //#pragma omp for
+            #pragma omp for
             for (int i = 0; i < rowsInBlock; i++) {
                 matrix_B[i] = (float *)malloc(3 * sizeof(float));
             }
 
             // reads file and fills block B with values
             float Bx, By ,Bz;
-            //#pragma omp for
+            #pragma omp for
             for (int rowB = 0; rowB < rowsInBlock; rowB++) {
                 fscanf(file, "%f %f %f", &Bx, &By, &Bz);
                 matrix_B[rowB][0] = Bx;
